@@ -1,0 +1,11 @@
+{
+    "keyword": "초코",
+    "model": "gpt-4o-mini",
+    "max_tokens": 1000,
+    "temperature": 0.7,
+    "custom_instructions": "",
+    "dark_mode": true,
+    "sayHeard": true,
+    "speechEngine":"gtts"
+  }
+  
