@@ -4,19 +4,18 @@ from langchain.tools import Tool
 
 from timer_agent import start_timer, cancel_timer, list_timers
 from alarm_agent import set_alarm, cancel_alarm, list_alarms
-from date_converter import convert_date_format
-from calculator import simple_calculator
-from langchain.chat_models import ChatOpenAI
+from date_converter_agent import convert_date_format
+from calculator_agent import simple_calculator
+from langchain_openai import ChatOpenAI
 from langchain.agents import initialize_agent, AgentType
-from utils import timer_tool, cancel_timer_tool, list_timer_tool, alarm_tool, cancel_alarm_tool, list_alarm_tool, date_tool, calculator_tool
+from alarm_agent import *
+from calculator_agent import *
+from date_converter_agent import *
+from timer_agent import *
 
-with open("settings.json", "r") as f:
-    settings = json.load(f)
-    llm.api_key = settings["openai_api_key"] if settings["litellm_api_key"] == "" else settings["litellm_api_key"]
 
-# OpenAI API 키 설정 (환경 변수 또는 직접 입력 가능)
-os.environ["OPENAI_API_KEY"] = "your_openai_api_key"
-
+os.environ["OPENAI_API_KEY"] = "openai_api_key"
+os.environ["PV_ACCESS_KEY"] = "pv_access_key"
 
 # 타이머 도구
 timer_tool = Tool(

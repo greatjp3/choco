@@ -6,6 +6,7 @@
     "custom_instructions": "",
     "dark_mode": true,
     "sayHeard": true,
-    "speechEngine":"gtts"
+    "speechEngine":"gtts",
+    "response_wave":"yes.wav"
   }
   
