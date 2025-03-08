@@ -21,4 +21,11 @@ def simple_calculator(expression: str) -> str:
         return error_msg
     
     except (SyntaxError, TypeError, ValueError) as e:
-        error_msg = f"
+        error_msg = f"❌ 잘못된 수식입니다: {expression} | 오류 유형: {type(e).__name__}"
+        logger.write(f"⚠️ 계산 오류 ({type(e).__name__}): {expression} | {e}\n")
+        return error_msg
+    
+    except Exception as e:
+        error_msg = "❌ 계산 중 알 수 없는 오류가 발생했습니다."
+        logger.write(f"⛔ 예상치 못한 계산 오류: {expression} | {e}\n")
+        return error_msg
