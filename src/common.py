@@ -1,28 +1,50 @@
+from logger import logger
 import os
 import json
 import wave
+import struct
 import numpy as np
-from scipy.signal import resample
+import time
+import threading
+import pyaudio
 import pygame.mixer as mixer
 from pathlib import Path
+from scipy.signal import resample
 
 SOURCE_DIR = Path(__file__).parent
 log_file_path = SOURCE_DIR / "log/events.log"
 
 def load_settings():
+    """설정 파일 로드 함수"""
     settings_path = SOURCE_DIR / "settings.json"
-    with open(settings_path, "r") as f:
-        settings = json.load(f)
-        return settings
+    try:
+        with open(settings_path, "r") as f:
+            settings = json.load(f)
+            return settings
+    except FileNotFoundError:
+        logger.write("⚠️ 설정 파일(settings.json)을 찾을 수 없습니다.\n")
+        return None
+    except json.JSONDecodeError:
+        logger.write("⚠️ 설정 파일 형식 오류 (JSONDecodeError)\n")
+        return None
+    except Exception as e:
+        logger.write(f"⛔ 설정 파일 로드 중 오류 발생: {e}\n")
+        return None
 
 def initialize_system():
-    # api_key = os.getenv("OPENAI_API_KEY")  
-    # os.environ["OPENAI_API_KEY"] = "openai_api_key"
-    # os.environ["PV_ACCESS_KEY"] = "pv_access_key"
-    api_key = os.getenv("OPENAI_API_KEY")
-    print(api_key)
+    """환경 변수 초기화"""
+    try:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise KeyError("환경 변수 오류: OPENAI_API_KEY가 설정되지 않았습니다.")
+        print(f"✅ OPENAI_API_KEY: {api_key}")
+    except KeyError as e:
+        logger.write(f"⚠️ {e}\n")
+        print(e)
+        exit(1)
 
 def wake_word(sensitivity=0.8):
+    """키워드 감지를 위한 wake word 함수"""
     keywords = ["computer", "jarvis"]
     sensitivities = [sensitivity] * len(keywords)
 
@@ -30,24 +52,22 @@ def wake_word(sensitivity=0.8):
         print("wake_word1")
         porcupine = pvporcupine.create(
             keywords=keywords,
-            access_key=pv_access_key,
+            access_key=os.getenv("PV_ACCESS_KEY"),
             sensitivities=sensitivities
         )
         print("wake_word2")
-        # ALSA 에러 출력을 무시하기 위한 설정
+
         devnull = os.open(os.devnull, os.O_WRONLY)
         old_stderr = os.dup(2)
-        sys.stderr.flush()
         os.dup2(devnull, 2)
         os.close(devnull)
+
         print("wake_word3")
         wake_pa = pyaudio.PyAudio()
-        # 오디오 장치의 기본 샘플 레이트 (예: 44100 Hz)
         device_rate = 44100
-        # porcupine이 요구하는 프레임 길이에 맞게 읽어야 하는 샘플 수 계산
         frames_to_read = int(porcupine.frame_length * device_rate / porcupine.sample_rate)
 
-        # wav 파일 설정 (원본 오디오 데이터를 저장)
+        # wav 파일 설정
         wav_file = wave.open("recorded_audio.wav", "wb")
         wav_file.setnchannels(1)
         wav_file.setsampwidth(wake_pa.get_sample_size(pyaudio.paInt16))
@@ -66,18 +86,15 @@ def wake_word(sensitivity=0.8):
 
         while Detect:
             try:
-                # 원본 오디오 데이터를 읽음 (44100 Hz)
                 raw_audio_data = porcupine_audio_stream.read(frames_to_read, exception_on_overflow=False)
-                # 동시에 wav 파일에 기록
                 wav_file.writeframes(raw_audio_data)
-                # Porcupine 처리를 위해 데이터 변환
                 audio_data = struct.unpack_from("h" * frames_to_read, raw_audio_data)
                 audio_data = np.array(audio_data)
-                # 44100 Hz 데이터를 16000 Hz (porcupine.sample_rate)로 리샘플링
                 resampled_data = resample(audio_data, porcupine.frame_length)
                 resampled_data = resampled_data.astype(np.int16)
                 porcupine_pcm = tuple(resampled_data)
             except Exception as e:
+                logger.write(f"⚠️ Audio stream error: {e}\n")
                 print(f"Audio stream error: {e}")
                 continue
 
@@ -88,21 +105,40 @@ def wake_word(sensitivity=0.8):
                 Detect = False
 
     except Exception as e:
+        logger.write(f"⛔ Error in wake_word function: {e}\n")
         print(f"Error in wake_word function: {e}")
 
     finally:
-        porcupine_audio_stream.stop_stream()
-        porcupine_audio_stream.close()
-        porcupine.delete()
-        os.dup2(old_stderr, 2)
-        os.close(old_stderr)
-        wav_file.close()  # wav 파일 닫기
-        wake_pa.terminate()
+        try:
+            porcupine_audio_stream.stop_stream()
+            porcupine_audio_stream.close()
+            porcupine.delete()
+            os.dup2(old_stderr, 2)
+            os.close(old_stderr)
+            wav_file.close()
+            wake_pa.terminate()
+        except Exception as e:
+            logger.write(f"⛔ wake_word 종료 중 오류 발생: {e}\n")
+            print(f"wake_word 종료 중 오류 발생: {e}")
 
 def speak_response():
-    mixer.init()
-    with open("settings.json", "r") as f:
-        response_wave = "../res/" + json.load(f)["response_wave"]
-    mixer.music.load(response_wave)  # WAV 파일 로드
-    mixer.music.play()
-    print("speak")
+    """음성 출력 함수"""
+    try:
+        mixer.init()
+        settings = load_settings()
+        if not settings:
+            raise FileNotFoundError("⚠️ 설정 파일(settings.json) 불러오기 실패.")
+
+        response_wave = "../res/" + settings["response_wave"]
+        mixer.music.load(response_wave)  # WAV 파일 로드
+        mixer.music.play()
+        print("speak")
+    except FileNotFoundError as e:
+        logger.write(f"⚠️ 음성 파일 로드 실패: {e}\n")
+        print(e)
+    except pygame.error as e:
+        logger.write(f"⚠️ pygame 오류 발생: {e}\n")
+        print("음성을 재생할 수 없습니다.")
+    except Exception as e:
+        logger.write(f"⛔ 음성 출력 중 오류 발생: {e}\n")
+        print("음성 출력 중 오류가 발생했습니다.")
