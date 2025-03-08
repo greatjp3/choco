@@ -5,16 +5,11 @@ from agent import *
 def main_loop():
     try:
         while True:
-            # wake_word()
+            wake_word()
             speak_response()
-
-            command = input("입력하세요 (종료: exit): ")
-            if command.lower() == "exit":
-                print("프로그램을 종료합니다.")
-                break
-            
+            text = recognize_audio()
             try:
-                response = agent.run(command)
+                response = agent.run(text)
                 print(f"응답: {response}")
             except Exception as e:
                 print(f"에이전트 실행 중 오류 발생: {e}")
