@@ -1,3 +1,4 @@
+import os
 import json
 import wave
 import numpy as np
@@ -15,7 +16,11 @@ def load_settings():
         return settings
 
 def initialize_system():
-    a=1
+    # api_key = os.getenv("OPENAI_API_KEY")  
+    # os.environ["OPENAI_API_KEY"] = "openai_api_key"
+    # os.environ["PV_ACCESS_KEY"] = "pv_access_key"
+    api_key = os.getenv("OPENAI_API_KEY")
+    print(api_key)
 
 def wake_word(sensitivity=0.8):
     keywords = ["computer", "jarvis"]

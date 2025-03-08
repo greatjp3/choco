@@ -1,4 +1,5 @@
 import os
+from dotenv import load_dotenv
 import json
 from langchain.tools import Tool
 
@@ -13,9 +14,10 @@ from calculator_agent import *
 from date_converter_agent import *
 from timer_agent import *
 
+load_dotenv()
 
-os.environ["OPENAI_API_KEY"] = "openai_api_key"
-os.environ["PV_ACCESS_KEY"] = "pv_access_key"
+api_key = os.getenv("OPENAI_API_KEY")
+print(f"set OPENAI_API_KEY")
 
 # 타이머 도구
 timer_tool = Tool(
@@ -25,13 +27,13 @@ timer_tool = Tool(
 )
 
 cancel_timer_tool = Tool(
-    name="Cancel Timer",
+    name="Cancel_Timer",
     func=cancel_timer,
     description="설정된 타이머를 취소합니다. 예: '1번 타이머'"
 )
 
 list_timer_tool = Tool(
-    name="List Timers",
+    name="List_Timers",
     func=list_timers,
     description="현재 실행 중인 타이머 목록을 확인합니다. 예: '타이머 목록'"
 )
@@ -44,20 +46,20 @@ alarm_tool = Tool(
 )
 
 cancel_alarm_tool = Tool(
-    name="Cancel Alarm",
+    name="Cancel_Alarm",
     func=cancel_alarm,
     description="설정된 알람을 취소합니다. 예: '1번 알람'"
 )
 
 list_alarm_tool = Tool(
-    name="List Alarms",
+    name="List_Alarms",
     func=list_alarms,
     description="현재 설정된 알람 목록을 확인합니다. 예: '알람 목록'"
 )
 
 # 날짜 변환 도구
 date_tool = Tool(
-    name="Date Converter",
+    name="Date_Converter",
     func=convert_date_format,
     description="YYYY-MM-DD 형식의 날짜를 'YYYY년 MM월 DD일' 형식으로 변환합니다."
 )
@@ -69,10 +71,8 @@ calculator_tool = Tool(
     description="기본적인 숫자 연산을 수행합니다. 예: '2 + 3', '10 / 2'"
 )
 
-
-
 # LangChain AI Agent 설정
-llm = ChatOpenAI(model_name="gpt-4", temperature=0)
+llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=api_key)
 
 agent = initialize_agent(
     tools=[timer_tool, cancel_timer_tool, list_timer_tool, alarm_tool, cancel_alarm_tool, list_alarm_tool, date_tool, calculator_tool],
