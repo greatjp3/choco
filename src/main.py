@@ -1,3 +1,5 @@
+import contextlib
+import asyncio
 from logger import logger
 from common import *
 from agent import *
@@ -6,10 +8,12 @@ def main_loop():
     try:
         while True:
             wake_word()
-            speak_response()
+            speak_ack()
             text = recognize_audio()
             try:
                 response = agent.run(text)
+                speak(response)
+
                 print(f"응답: {response}")
             except Exception as e:
                 print(f"에이전트 실행 중 오류 발생: {e}")

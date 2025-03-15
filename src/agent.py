@@ -12,15 +12,12 @@ try:
     from langchain_openai import ChatOpenAI
     from langchain.agents import initialize_agent, AgentType
 
-    from timer_agent import start_timer, cancel_timer, list_timers
-    from alarm_agent import set_alarm, cancel_alarm, list_alarms
-    from date_converter_agent import convert_date_format
-    from calculator_agent import simple_calculator
-
     from alarm_agent import *
     from calculator_agent import *
     from date_converter_agent import *
     from timer_agent import *
+    from weather_agent import *
+    from current_time_agent import *
 
 except ImportError as e:
     logger.write(f"모듈 임포트 오류 발생: {e}\n")
@@ -33,9 +30,7 @@ load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
 if not api_key:
     logger.write("환경 변수 오류: OPENAI_API_KEY가 설정되지 않았습니다.\n")
-    print("환경 변수 오류: OPENAI_API_KEY가 설정되지 않았습니다.")
     exit(1)
-logger.write("✅ OPENAI_API_KEY가 설정되었습니다.\n")
 
 # 안전한 도구 초기화 (예외 방지)
 def safe_tool(name, func, description):
@@ -63,19 +58,38 @@ date_tool = safe_tool("Date_Converter", convert_date_format, "YYYY-MM-DD 형식�
 # 계산기 도구
 calculator_tool = safe_tool("Calculator", simple_calculator, "기본적인 숫자 연산을 수행합니다. 예: '2 + 3', '10 / 2'")
 
-# 도구 리스트에서 None 제거 (예외로 인해 생성되지 않은 도구 제거)
-tools = [tool for tool in [timer_tool, cancel_timer_tool, list_timer_tool, alarm_tool, cancel_alarm_tool, list_alarm_tool, date_tool, calculator_tool] if tool is not None]
+# 날짜
+get_current_time_tool = safe_tool("get_current_time", get_current_time, "현재 시간 가져오기. 예: '12시 30분'")
+compare_time_tool = safe_tool("compare_time", compare_time, "주어진 시간과 현재 시간 비교. 예: '1시간 30분 남았습니다.'")
 
-# LangChain AI Agent 설정
-try:
-    llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=api_key)
-    agent = initialize_agent(
+# 날씨
+get_weather_tool = safe_tool("get_weather", get_weather, "날짜, 장소, 시간의 날씨. 날짜, 시간, 장소는 주어 질 수도 안 주어 질수도 있음. 날짜는 '어제', '오늘', '내일' 이런식으로 또는 '3월 1일'. 현재 온도 말해줘. 온도는 소수점 빼고, 관측 지점 빼고. 장소 말해 줘 예: '오늘 잠원동은 맑음, 최저온도 0도, 최고온도 10도, 현재 온도 5도, 미세먼지 보통, 초미세먼지 보통 입니다.'") 
+compare_weather_tool = safe_tool("compare_weather", compare_weather, "주어진 장소의 날짜 별 온도 비교 예: '오늘 잠원동은 어제 보다 따뜻한 날씨 입니다. 현재 온도는 5도, 최저온도 0도, 최고온도 2도 높습니다.'") 
+
+# 도구 리스트에서 None 제거 (예외로 인해 생성되지 않은 도구 제거)
+tools = [tool for tool in [timer_tool, cancel_timer_tool, list_timer_tool, alarm_tool, cancel_alarm_tool, list_alarm_tool, date_tool, calculator_tool, get_current_time_tool, compare_time_tool, get_weather_tool, compare_weather_tool] if tool is not None]
+
+# # LangChain AI Agent 설정
+# try:
+#     llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=api_key)
+#     agent = initialize_agent(
+#         tools=tools,
+#         llm=llm,
+#         agent=AgentType.OPENAI_FUNCTIONS,  # OpenAI의 Function Calling 사용
+#         verbose=True
+#     )
+# except Exception as e:
+#     logger.write(f"LangChain 에이전트 초기화 실패: {e}\n")
+#     print(f"LangChain 에이전트 초기화 실패: {e}")
+#     exit(1)
+
+async def initialize_async_agent():
+    """비동기적으로 실행되는 LangChain AI Agent 초기화"""
+    llm = ChatOpenAI(model_name="gpt-4", temperature=0, openai_api_key=api_key, streaming=True)
+
+    return initialize_agent(
         tools=tools,
         llm=llm,
         agent=AgentType.OPENAI_FUNCTIONS,  # OpenAI의 Function Calling 사용
         verbose=True
     )
-except Exception as e:
-    logger.write(f"LangChain 에이전트 초기화 실패: {e}\n")
-    print(f"LangChain 에이전트 초기화 실패: {e}")
-    exit(1)
