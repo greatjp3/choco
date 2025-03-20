@@ -16,8 +16,10 @@ import speech_recognition as sr
 from gtts import gTTS
 from io import BytesIO
 from pydub import AudioSegment
-import pygame.mixer as mixer
+from pydub.playback import play
 from concurrent.futures import ThreadPoolExecutor
+import pygame
+import tempfile
 
 SOURCE_DIR = Path(__file__).parent
 log_file_path = SOURCE_DIR / "log/events.log"
@@ -42,7 +44,7 @@ def load_settings():
 def initialize_system():
     return None
 
-async def wake_word(sensitivity=0.5):
+def wake_word(sensitivity=0.5):
     """키워드 감지를 위한 wake word 함수"""
     with open("settings.json", "r") as f:
         settings = json.load(f)
@@ -131,7 +133,7 @@ async def wake_word(sensitivity=0.5):
         os.dup2(old_stderr, 2)  # stderr을 원래 상태로 복구
         os.close(old_stderr)  # 기존 stderr 닫기
 
-async def speak_ack():
+def speak_ack():
     """음성 출력 함수"""
     try:
         mixer.init()
@@ -155,7 +157,7 @@ async def speak_ack():
 # Recognizer 객체 생성
 r = sr.Recognizer()
 
-async def recognize_audio():
+def recognize_audio():
     """ 마이크 입력을 받아 음성을 인식하는 함수 """
     try:
         with sr.Microphone(sample_rate=44100, device_index=2) as source:
@@ -208,6 +210,7 @@ async def speak(text: str):
                 mp3_fp = BytesIO()
                 tts = gTTS(text, lang='ko')
                 tts.write_to_fp(mp3_fp)
+                print("mp3")
             except Exception as e:
                 logger.error(f"⛔ gTTS 변환 오류: {e}")
                 return
@@ -258,3 +261,29 @@ async def speak(text: str):
                 mixer.quit()
             if os.path.exists("temp_output.mp3"):
                 os.remove("temp_output.mp3")  # 임시 파일 삭제
+    
+    await loop.run_in_executor(executor, _speak)
+    stop_event.set()
+
+def change_speed(sound, speed=1.3):
+    """오디오의 재생 속도를 변경 (speed=1.0 기본, 1.5는 1.5배 빠름, 0.5는 절반 속도)"""
+    new_frame_rate = int(sound.frame_rate * speed)
+    return sound._spawn(sound.raw_data, overrides={'frame_rate': new_frame_rate}).set_frame_rate(44100)
+
+def text_to_speech(text, speed=1.3):
+    """TTS 생성 후 지정된 속도로 재생"""
+    tts = gTTS(text, lang='ko')
+
+    # 임시 파일 생성 후 gTTS 결과 저장
+    with tempfile.NamedTemporaryFile(delete=True, suffix=".mp3") as temp_audio:
+        tts.save(temp_audio.name)  # gTTS 음성을 임시 파일에 저장
+        temp_audio.seek(0)  # 파일 포인터 초기화
+
+        # pydub을 이용하여 mp3 불러오기
+        sound = AudioSegment.from_file(temp_audio.name, format="mp3")
+
+        # 속도 조절 적용
+        modified_sound = change_speed(sound, speed)
+
+        # 변환된 오디오 재생
+        play(modified_sound)
