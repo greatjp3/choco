@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 from litellm import completion, check_valid_key
 import re
 from threading import Timer
+import subprocess
+import signal
 
 def llm_action(text, retries=3):
     # Load settings from settings.json
@@ -37,6 +39,7 @@ def llm_action(text, retries=3):
        # await asyncio.sleep(0.5)  # Wait before retrying
 
 alarms = {}
+running_processes = {}
 
 class Alarm:
     def __init__(self, time, timer):
@@ -47,11 +50,8 @@ class Alarm:
         self.timer.cancel()
 
 def parse_time_expression(time_expression):
-    print("파싱 대상:", time_expression)
-
     if re.match(r'\d+:\d+', time_expression):  # HH:MM 형식
         hour, minute = map(int, time_expression.split(':'))
-        print(f"ppp: {hour}, {minute}")
         return hour, minute, '*', '*', '*'
 
     elif re.search(r'(\d+\s*시간|\d+\s*분)', time_expression):  # "1시간 10분", "30분"
@@ -64,16 +64,13 @@ def parse_time_expression(time_expression):
         hours = int(hour_match.group(1)) if hour_match else 0
         minutes = int(minute_match.group(1)) if minute_match else 0
 
-        print(f"p: {hours}, {minutes}")
         now = datetime.now()
         future = now + timedelta(hours=hours, minutes=minutes)
-        print(f"parse: {future.hour}, {future.minute}")
         return future.hour, future.minute, future.day, future.month, '*'
 
     elif re.search(r'\d+\s*시', time_expression) and not re.search(r'\d+\s*분', time_expression):  # "9시" 단일 시각만 처리
         hour = int(re.search(r'\d+', time_expression).group())
         minute = 0
-        print(f"pp: {hour}, {minute}")
         return hour, minute, '*', '*', '*'
 
     raise ValueError("올바르지 않은 시간 표현입니다.")
@@ -81,8 +78,6 @@ def parse_time_expression(time_expression):
 def set_alarm(command, minute, hour, day_of_month, month, day_of_week, comment):
     now = datetime.now()
     now = now.replace(second=0, microsecond=0)
-    print(f"now:{now}")
-    print(f"alarm: {minute}, {hour}, {day_of_month}, {month}")
 
     if day_of_month == '*' or month == '*':
         alarm_time = now.replace(hour=hour, minute=minute)
@@ -93,14 +88,17 @@ def set_alarm(command, minute, hour, day_of_month, month, day_of_week, comment):
         if alarm_time < now:
             alarm_time += timedelta(days=1)
 
-    print(f"alarm:{alarm_time}")
+    unique_comment = f"{comment}_{alarm_time.strftime('%H%M')}"
+
+    def run_command():
+        proc = subprocess.Popen(command, shell=True, preexec_fn=os.setsid)  # 새로운 세션 id로 실행
+        running_processes[unique_comment] = proc
+        
     delay = (alarm_time - now).total_seconds()
-    timer = Timer(delay, lambda: subprocess.Popen(command, shell=True))
+    timer = Timer(delay, run_command)  # pass the function itself, not the result of its call
     timer.start()
 
-    unique_comment = f"{comment}_{alarm_time.strftime('%H%M')}"
     alarms[unique_comment] = Alarm(alarm_time, timer)
-
     diff = alarm_time - now
     total_minutes = int(diff.total_seconds() // 60)
     diff_hours = total_minutes // 60
@@ -158,6 +156,22 @@ def snooze_alarm(comment, snooze_minutes):
     else:
         return "해당 알람을 찾을 수 없어요."
 
+def stop_alarm():
+    if not running_processes:
+        return "종료할 알람이 없어요."
+
+    sorted_comments = sorted(running_processes.keys())
+    oldest_comment = sorted_comments[0]
+    proc = running_processes[oldest_comment]
+
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)  # 프로세스 그룹 전체 종료
+    except Exception as e:
+        print(f"종료 실패: {e}")
+        return f"[{oldest_comment}] 알람 종료에 실패했어요."
+
+    del running_processes[oldest_comment]
+    return f"네"
 
 def set_reminder(command, minute, hour, day_of_month, month, day_of_week, comment):
     now = datetime.now()
@@ -172,24 +186,45 @@ def set_reminder(command, minute, hour, day_of_month, month, day_of_week, commen
 
 def alarm_reminder_action(text):
     set_match = re.search(
-        r'\b(?:알람|타이머|일정|깨워줘|깨워)\s*(?:설정|등록|추가|맞춰|켜줘|울려줘|줘)?\b.*?\b(?:오전|오후|에서|후|안에|까지|에|후에)?\s*'
-        r'((?:\d+\s*시간)?\s*(?:\d+\s*분)?|\d{1,2}:\d{2}|\d+\s*시)\b'
-        r'|\b((?:\d+\s*시간)?\s*(?:\d+\s*분)?|\d+\s*시)\s*(?:후|안에|뒤에|후에)?\s*(?:알람|타이머|깨워줘|일어나게|깨워)\b',
-        text,
-        re.IGNORECASE
-    )
-    set_match = re.search(
-        r'(\d+\s*시간\s*\d*\s*분?|\d+\s*분|\d{1,2}:\d{2}|\d+\s*시)(?:\s*후에|\s*뒤에|\s*안에|\s*에)?\s*(알람|타이머|일정|깨워줘|깨워)',
-        text,
-        re.IGNORECASE
-    )
-    delete_match = re.search(
-        r'(?:알람|타이머)\s*(\w+)?\s*(?:삭제|제거|취소|꺼줘|꺼)\b'
-        r'|(?:삭제|제거|취소|꺼줘|꺼)\s*(\w+)?\s*(?:알람|타이머)\b',
+        r'(?:'  # 시간 먼저 오는 패턴
+                r'(?P<time1>'
+                    r'(?:\d+\s*시간\s*\d+\s*분|\d+\s*시간|\d+\s*분)'  # '1시간 10분' or '1시간' or '10분'
+                    r'|\d{1,2}\s*시\s*\d+\s*분'                     # '6시 30분'
+                    r'|\d{1,2}\s*시'                               # '8시'
+                    r'|\d{1,2}:\d{2}'                              # '6:30'
+                r')'
+                r'(?:\s*(?:에|에서|후에|뒤에|안에|있다))?'            # 조사
+                r'\s*'
+                r'(?:알람|타이머|일정|깨워줘|깨워|일어나게)?'
+                r'\s*(?:설정|등록|추가|맞춰|켜줘|울려줘|줘)?'
+            r')'
+            r'|(?:'  # 알람 먼저 오는 패턴
+                r'(?:알람|타이머|일정|깨워줘|깨워|일어나게)'
+                r'\s*(?:설정|등록|추가|맞춰|켜줘|울려줘|줘)?\s*'
+                r'(?P<time2>'
+                    r'(?:\d+\s*시간\s*\d+\s*분|\d+\s*시간|\d+\s*분)'
+                    r'|\d{1,2}\s*시\s*\d+\s*분'
+                    r'|\d{1,2}\s*시'
+                    r'|\d{1,2}:\d{2}'
+                r')'
+                r'(?:\s*(?:에|에서|후에|뒤에|안에|있다))?'
+            r')',
         text,
         re.IGNORECASE
     )
 
+    delete_match = re.search(
+        r'(?:알람|타이머)\s*(\w+)?\s*(?:삭제|제거|취소)\b'
+        r'|(?:삭제|제거|취소)\s*(\w+)?\s*(?:알람|타이머)\b',
+        text,
+        re.IGNORECASE
+    )
+    stop_match = re.search(
+        r'(?:알람|타이머)\s*(\w+)?\s*(?:꺼줘|꺼)\b'
+        r'|(?:꺼줘|꺼)\s*(\w+)?\s*(?:알람|타이머)\b',
+        text,
+        re.IGNORECASE
+    )
     snooze_match = re.search(
         r'\b(?:스누즈|연기|지연|미루기)\s*(?:알람|타이머)\b.*?\b(?:동안|동안에)\s*(\d+\s*(?:분|시간))\b', 
         text, 
@@ -201,17 +236,13 @@ def alarm_reminder_action(text):
         text, 
         re.IGNORECASE
     )
-    
-    if set_match and (set_match.group(1) or set_match.group(2)):
-        time_expression = set_match.group(1) or set_match.group(2)
-        hour, minute, dom, month, dow = parse_time_expression(time_expression)
-        print(f"parse:{hour}, {minute}")
-        command = "aplay alarm.wav"
-        comment = "Alarm"
-        return set_alarm(command, minute, hour, dom, month, dow, comment)
-    elif delete_match:
+
+     # ✅ 명령 우선순위 정리: 삭제 → 중지 → 스누즈 → 리마인더 → 설정
+    if delete_match:
         comment = delete_match.group(1) or delete_match.group(2)
         return delete_alarm(comment)
+    elif stop_match:
+        return stop_alarm()
     elif snooze_match:
         snooze_time = snooze_match.group(1)
         snooze_minutes = int(re.search(r'\d+', snooze_time).group())
@@ -232,8 +263,19 @@ engine.runAndWait()"'
         """
         comment = "Reminder"
         return set_reminder(command, minute, hour, dom, month, dow, comment)
+    elif set_match:
+        time_expression = set_match.group(1) or set_match.group(2)
+        if time_expression:
+            try:
+                hour, minute, dom, month, dow = parse_time_expression(time_expression)
+                command = "aplay ../res/alarm.wav"
+                comment = "Alarm"
+                return set_alarm(command, minute, hour, dom, month, dow, comment)
+            except Exception as e:
+                return f"(Alarm) 시간 파싱 오류: {str(e)}"
     else:
-        return "(Alarm) Invalid command."
+        return "(Alarm) 시간 표현을 이해하지 못했어요."
+
 
 async def caldav_action(text: str):
     url = os.getenv('CALDAV_URL')
