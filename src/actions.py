@@ -1,294 +1,10 @@
 from common import *
-from weather_codes import weather_codes
+from datetime import datetime, timedelta
+from litellm import completion, check_valid_key
+import re
+from threading import Timer
 
-async def spotify_action(text: str):
-    client_id = os.getenv('SPOTIFY_CLIENT_ID')
-    client_secret = os.getenv('SPOTIFY_CLIENT_SECRET')
-    if client_id and client_secret:
-        try:
-            async with aiohttp.ClientSession() as session:
-                ip = subprocess.run(["hostname", "-I"], capture_output=True).stdout.decode().split()[0]
-                response = await session.post(f"http://{ip}/spotify-control", json={"text": text})
-                if response.status == 200:
-                    data = await response.json()
-                    return data.get("message")
-                else:
-                    content_text = await response.text()
-                    logger.warning(content_text)
-                    return f"Received a {response.status} status code. {content_text}"
-        except Exception as e:
-            logger.error(f"Error: {traceback.format_exc()}")
-            raise Exception(f"Something went wrong: {e}")
-    raise Exception("No client id or client secret found. Please provide the necessary credentials for Spotify in the web interface.")
-
-async def coords_from_city(city, api_key=None):
-    async with aiohttp.ClientSession() as session:
-        if api_key:
-            response = await session.get(f"http://api.openweathermap.org/geo/1.0/direct?q={city}&appid={api_key}")
-            if response.status == 200:
-                json_response = await response.json()
-                if len(json_response) > 0:
-                    coords = {
-                        "lat": json_response[0].get('lat'),
-                        "lon": json_response[0].get('lon')
-                    }
-                else:
-                    return None
-                return coords
-        
-        # Fallback to Open-Meteo if no API key or OpenWeather fails
-        response = await session.get(f"https://nominatim.openstreetmap.org/search?q={city}&format=json")
-        if response.status == 200:
-            json_response = await response.json()
-            if len(json_response) > 0:
-                coords = {
-                    "lat": float(json_response[0].get('lat')),
-                    "lon": float(json_response[0].get('lon'))
-                }
-            else:
-                return None
-            return coords
-        
-async def city_from_zip(zip_code: str, country_code: str = "us"):
-    api_key = os.getenv('OPEN_WEATHER_API_KEY')
-    if not api_key:
-        logger.error("No API key provided for OpenWeatherMap.")
-        return None
-
-    async with aiohttp.ClientSession() as session:
-        try:
-            response = await session.get(
-                f"http://api.openweathermap.org/geo/1.0/zip?zip={zip_code},{country_code}&appid={api_key}"
-            )
-            if response.status == 200:
-                json_response = await response.json()
-                city = json_response.get('name')
-                return city
-            else:
-                logger.error(f"Failed to retrieve city from zip code. Status: {response.status}")
-        except Exception as e:
-            logger.error(f"Error retrieving city from zip code: {traceback.format_exc()}")
-    return None
-
-async def city_from_ip():
-    async with aiohttp.ClientSession() as session:
-        response = await session.get(f"https://ipinfo.io/json")
-        if response.status == 200:
-            json_response = await response.json()
-            city = json_response.get('city')
-            return city
-
-async def open_weather_action(text: str):
-    try:
-        current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        api_key = os.getenv('OPEN_WEATHER_API_KEY')
-        settings = load_settings()
-        async with aiohttp.ClientSession() as session:
-            if re.search(r'(weather|temperature).*\sin\s', text, re.IGNORECASE):
-                city_match = re.search(r'in\s([\w\s]+)', text, re.IGNORECASE)
-                if city_match:
-                    city = city_match.group(1).strip()
-
-                # Current weather
-                if not re.search(r'(forecast|future)', text, re.IGNORECASE):
-                    coords = await coords_from_city(city, api_key)
-                    if coords is None:
-                        return f"No weather data available for {city}. Please check the city name and try again."
-                    
-                    if api_key:
-                        response = await session.get(f"https://api.openweathermap.org/data/3.0/onecall?lat={coords.get('lat')}&lon={coords.get('lon')}&appid={api_key}&units=imperial")
-                        if response.status == 200:
-                            json_response = await response.json()
-                            logger.debug(json_response)
-                            weather = json_response.get('current').get('weather')[0].get('main')
-                            temp = json_response.get('current').get('temp')
-                            combined_response = f"It is currently {round(float(temp))} degrees and {weather.lower()} in {city}."
-                            return await llm_action(
-                                text=f"""Provide a concise response to the user's question based on the weather data.  Do not summarize or respond to anything other than the question\n
-                                User's question: {text}\n\nCurrent time: {current_time}\n
-                                Response: {combined_response}\n\nIf the response is consistent with what the question is asking, return it. Otherwise, use the following weather data to answer the question: {json_response.get('current')}"""
-                            )
-                    
-                    # Fallback to Open-Meteo
-                    response = await session.get(f"https://api.open-meteo.com/v1/forecast?latitude={coords.get('lat')}&longitude={coords.get('lon')}&current_weather=true&temperature_unit=fahrenheit")
-                    if response.status == 200:
-                        json_response = await response.json()
-                        weather_code = json_response.get('current_weather').get('weathercode')
-                        temp = json_response.get('current_weather').get('temperature')
-                        weather_description = weather_codes[str(weather_code)]['day']['description'] if datetime.now().hour < 18 else weather_codes[str(weather_code)]['night']['description']
-                        combined_response = f"It is currently {round(float(temp))} degrees and {weather_description.lower()} in {city}."
-                        return await llm_action(
-                                text=f"""Provide a concise response to the user's question based on the weather data.  Do not summarize or respond to anything other than the question\n
-                                User's question: {text}\n\nCurrent time: {current_time}\n
-                                Response: {combined_response}\n\nIf the response is consistent with what the question is asking, return it. Otherwise, use the following weather data to answer the question: {weather_description}"""
-                        )
-
-                # Weather forecast
-                else:
-                    coords = await coords_from_city(city, api_key)
-                    tomorrow = datetime.now() + timedelta(days=1)
-                    if coords is None:
-                        return f"No weather data available for {city}. Please check the city name and try again."
-                    
-                    if api_key:
-                        response = await session.get(f"https://api.openweathermap.org/data/3.0/onecall?lat={coords.get('lat')}&lon={coords.get('lon')}&appid={api_key}&units=imperial")
-                        if response.status == 200:
-                            json_response = await response.json()
-                            # next few days
-                            forecast = []
-                            for day in json_response.get('daily'):
-                                forecast.append({
-                                    'weather': day.get('weather')[0].get('main'),
-                                    'temp': day.get('temp').get('day'),
-                                    'date': datetime.fromtimestamp(day.get('dt')).strftime('%A')
-                                })
-                            # tomorrow
-                            tomorrow_forecast = list(filter(lambda x: x.get('date') == tomorrow.strftime('%A'), forecast))[0]
-                            speech_responses = []
-                            speech_responses.append(f"Tomorrow, it will be {tomorrow_forecast.get('temp')}\u00B0F and {tomorrow_forecast.get('weather')} in {city}.")
-                            for day in forecast:
-                                if day.get('date') != tomorrow.strftime('%A'):
-                                    speech_responses.append(f"On {day.get('date')}, it will be {round(float(day.get('temp')))} degrees and {day.get('weather').lower()} in {city}.")
-                            combined_response = ' '.join(speech_responses)
-                            return await llm_action(
-                                text=f"""Provide a concise response to the user's question based on the weather data.  Do not summarize or respond to anything other than the question\n
-                                User's question: {text}\n\nCurrent time: {current_time}\n
-                                Response: {combined_response}\n\nIf the response is consistent with what the question is asking, return it. Otherwise, use the following weather data to answer the question: {json_response.get('current')}"""
-                            )
-                    
-                    # Fallback to Open-Meteo
-                    response = await session.get(f"https://api.open-meteo.com/v1/forecast?latitude={coords.get('lat')}&longitude={coords.get('lon')}&daily=temperature_2m_max,temperature_2m_min&temperature_unit=fahrenheit")
-                    if response.status == 200:
-                        json_response = await response.json()
-                        forecast = []
-                        for day in json_response.get('daily'):
-                            day_weather_code = day.get('weathercode')
-                            day_weather_description = weather_codes[str(day_weather_code)]['day']['description'] if datetime.now().hour < 18 else weather_codes[str(day_weather_code)]['night']['description']
-                            forecast.append({
-                                'temp_max': day.get('temperature_2m_max'),
-                                'temp_min': day.get('temperature_2m_min'),
-                                'weather_description': day_weather_description,
-                                'date': day.get('time')
-                            })
-                        tomorrow_forecast = list(filter(lambda x: x.get('date') == tomorrow.strftime('%Y-%m-%d'), forecast))[0]
-                        speech_responses = []
-                        speech_responses.append(f"Tomorrow, it will be between {tomorrow_forecast.get('temp_min')}\u00B0F and {tomorrow_forecast.get('temp_max')}\u00B0F and {tomorrow_forecast.get('weather_description').lower()} in {city}.")
-                        for day in forecast:
-                            if day.get('date') != tomorrow.strftime('%Y-%m-%d'):
-                                speech_responses.append(f"On {day.get('date')}, it will be between {day.get('temp_min')}\u00B0F and {day.get('temp_max')}\u00B0F and {day.get('weather_description').lower()} in {city}.")
-                        combined_response = ' '.join(speech_responses)
-                        return await llm_action(
-                                text=f"""Provide a concise response to the user's question based on the weather data.  Do not summarize or respond to anything other than the question\n
-                                User's question: {text}\n\nCurrent time: {current_time}\n
-                                Response: {combined_response}\n\nIf the response is consistent with what the question is asking, return it. Otherwise, use the following weather data to answer the question: {[day for day in forecast if day.get('weather_description')]}"""
-                        )
-
-            else:
-                # General weather based on environment variable zip code or IP address location
-                zip_code = settings.get('default_zip_code')
-                if zip_code:
-                    city = await city_from_zip(zip_code)
-                else:
-                    city = await city_from_ip()
-
-                coords = await coords_from_city(city, api_key)
-                if city is None:
-                    return f"Could not determine your city based on your IP address. Please provide a city name."
-                if coords is None:
-                    return f"No weather data available for {city}."
-                
-                if api_key:
-                    response = await session.get(f"http://api.openweathermap.org/data/3.0/onecall?lat={coords.get('lat')}&lon={coords.get('lon')}&appid={api_key}&units=imperial")
-                    if response.status == 200:
-                        json_response = await response.json()
-                        logger.debug(json_response)
-                        weather = json_response.get('current').get('weather')[0].get('main')
-                        temp = json_response.get('current').get('temp')
-                        combined_response = f"It is currently {round(float(temp))} degrees and {weather.lower()} in your location."
-                        return await llm_action(
-                            text=f"""Provide a concise response to the user's question based on the weather data.  Do not summarize or respond to anything other than the question\n
-                            User's question: {text}\n\nCurrent time: {current_time}\n
-                            Response: {combined_response}\n\nIf the response is consistent with what the question is asking, return it. Otherwise, use the following weather data to answer the question: {json_response.get('current')}"""
-                        )
-                
-                # Fallback to Open-Meteo
-                response = await session.get(f"https://api.open-meteo.com/v1/forecast?latitude={coords.get('lat')}&longitude={coords.get('lon')}&current_weather=true&temperature_unit=fahrenheit")
-                if response.status == 200:
-                    json_response = await response.json()
-                    weather_code = json_response.get('current_weather').get('weathercode')
-                    temp = json_response.get('current_weather').get('temperature')
-                    weather_description = weather_codes[str(weather_code)]['day']['description'] if datetime.now().hour < 18 else weather_codes[str(weather_code)]['night']['description']
-                    combined_response = f"It is currently {round(float(temp))} degrees and {weather_description.lower()} in {city}."
-                    return await llm_action(
-                        text=f"""Provide a concise response to the user's question based on the weather data.  Do not summarize or respond to anything other than the question\n
-                        User's question: {text}\n\nCurrent time: {current_time}\n
-                        Response: {combined_response}\n\nIf the response is consistent with what the question is asking, return it. Otherwise, use the following weather data to answer the question: {weather_description}"""
-                    )
-        raise Exception("No Open Weather API key found. Please enter your API key for Open Weather in the web interface or try reconnecting the service.")
-
-    except Exception as e:
-        if '404' in str(e):
-            return f"Weather information for {city} is not available."
-        else:
-            logger.error(f"Error: {traceback.format_exc()}")
-            return f"Something went wrong. {e}"
-
-async def philips_hue_action(text: str):
-    bridge_ip = os.getenv('PHILIPS_HUE_BRIDGE_IP')
-    username = os.getenv('PHILIPS_HUE_USERNAME')
-    
-    if bridge_ip and username:
-        try:
-            b = Bridge(bridge_ip, username)
-            b.connect()
-
-            # Turn on or off all lights
-            on_off_pattern = r'(\b(turn|shut|cut|put)\s)?.*(on|off)\b'
-            match = re.search(on_off_pattern, text, re.IGNORECASE)
-            if match:
-                if 'on' in match.group(0):
-                    b.set_group(0, 'on', True)
-                    return "Turning on all lights."
-                else:
-                    b.set_group(0, 'on', False)
-                    return "Turning off all lights."
-
-            # Change light color
-            color_pattern = r'\b(red|green|blue|yellow|purple|orange|pink|white|black)\b'
-            match = re.search(color_pattern, text, re.IGNORECASE)
-            if match:
-                # convert color to hue value
-                color = {
-                    'red': 0,
-                    'green': 25500,
-                    'blue': 46920,
-                    'yellow': 12750,
-                    'purple': 56100,
-                    'orange': 6000,
-                    'pink': 56100,  # Closest to purple for hue
-                    'white': 15330,  # Closest to a neutral white
-                }.get(match.group(1).lower())
-                b.set_group(0, 'on', True)
-                b.set_group(0, 'hue', color)
-                return f"Changing lights {match.group(1)}."
-
-            # Change light brightness
-            brightness_pattern = r'(\b(dim|brighten)\b)?.*?\s.*?to\s(\d{1,3})\b'
-            match = re.search(brightness_pattern, text, re.IGNORECASE)
-            if match:
-                brightness = int(match.group(3))
-                b.set_group(0, 'on', True)
-                b.set_group(0, 'bri', brightness)
-                return f"Setting brightness to {brightness}."
-
-            raise Exception("I'm sorry, I don't know how to handle that request.")
-        except Exception as e:
-            logger.error(f"Error: {traceback.format_exc()}")
-            return f"Something went wrong: {e}"
-    
-    raise Exception("No philips hue bridge IP found. Please enter your bridge IP for Phillips Hue in the web interface or try reconnecting the service.")
-
-async def llm_action(text, retries=3):
+def llm_action(text, retries=3):
     # Load settings from settings.json
     settings = load_settings()
     max_tokens = settings.get("max_tokens")
@@ -318,62 +34,129 @@ async def llm_action(text, retries=3):
             logger.error(f"Error on try {i+1}: {e}")
             if i == retries - 1:  # If this was the last retry
                 return f"Something went wrong after {retries} retries: {e}\n{traceback.format_exc()}"
-        await asyncio.sleep(0.5)  # Wait before retrying
+       # await asyncio.sleep(0.5)  # Wait before retrying
 
 alarms = {}
 
+class Alarm:
+    def __init__(self, time, timer):
+        self.time = time
+        self.timer = timer
+
+    def cancel(self):
+        self.timer.cancel()
+
+def parse_time_expression(time_expression):
+    print("파싱 대상:", time_expression)
+
+    if re.match(r'\d+:\d+', time_expression):  # HH:MM 형식
+        hour, minute = map(int, time_expression.split(':'))
+        print(f"ppp: {hour}, {minute}")
+        return hour, minute, '*', '*', '*'
+
+    elif re.search(r'(\d+\s*시간|\d+\s*분)', time_expression):  # "1시간 10분", "30분"
+        hour_match = re.search(r'(\d+)\s*시간', time_expression)
+        minute_match = re.search(r'(\d+)\s*분', time_expression)
+
+        if not hour_match and not minute_match:
+            raise ValueError("올바르지 않은 시간 표현입니다.")
+
+        hours = int(hour_match.group(1)) if hour_match else 0
+        minutes = int(minute_match.group(1)) if minute_match else 0
+
+        print(f"p: {hours}, {minutes}")
+        now = datetime.now()
+        future = now + timedelta(hours=hours, minutes=minutes)
+        print(f"parse: {future.hour}, {future.minute}")
+        return future.hour, future.minute, future.day, future.month, '*'
+
+    elif re.search(r'\d+\s*시', time_expression) and not re.search(r'\d+\s*분', time_expression):  # "9시" 단일 시각만 처리
+        hour = int(re.search(r'\d+', time_expression).group())
+        minute = 0
+        print(f"pp: {hour}, {minute}")
+        return hour, minute, '*', '*', '*'
+
+    raise ValueError("올바르지 않은 시간 표현입니다.")
+
 def set_alarm(command, minute, hour, day_of_month, month, day_of_week, comment):
     now = datetime.now()
-    alarm_time = now.replace(minute=minute, hour=hour, day=day_of_month, month=month, second=0, microsecond=0)
-    
-    if alarm_time < now:
-        alarm_time += timedelta(days=1)
-    
+    now = now.replace(second=0, microsecond=0)
+    print(f"now:{now}")
+    print(f"alarm: {minute}, {hour}, {day_of_month}, {month}")
+
+    if day_of_month == '*' or month == '*':
+        alarm_time = now.replace(hour=hour, minute=minute)
+        if alarm_time < now:
+            alarm_time += timedelta(days=1)
+    else:
+        alarm_time = now.replace(minute=minute, hour=hour, day=day_of_month, month=month, second=0, microsecond=0)
+        if alarm_time < now:
+            alarm_time += timedelta(days=1)
+
+    print(f"alarm:{alarm_time}")
     delay = (alarm_time - now).total_seconds()
     timer = Timer(delay, lambda: subprocess.Popen(command, shell=True))
     timer.start()
-    alarms[comment] = timer
-    return "Alarm set successfully."
+
+    unique_comment = f"{comment}_{alarm_time.strftime('%H%M')}"
+    alarms[unique_comment] = Alarm(alarm_time, timer)
+
+    diff = alarm_time - now
+    total_minutes = int(diff.total_seconds() // 60)
+    diff_hours = total_minutes // 60
+    diff_minutes = total_minutes % 60
+
+    display_hour = hour - 12 if hour > 12 else hour
+
+    if diff_hours > 0:
+        if diff_minutes > 0:
+            response = f"{diff_hours}시간 {diff_minutes}분 후인 {display_hour}시 {minute}분에 알람을 울릴께요."
+        else:
+            response = f"{diff_hours}시간 후인 {display_hour}시 {minute}분에 알람을 울릴께요."
+    else:
+        response = f"{diff_minutes}분 후인 {display_hour}시 {minute}분에 알람을 울릴께요."
+
+    return response
 
 def delete_alarm(comment):
+    def to_12_hour_format(hour):
+        return hour - 12 if hour > 12 else hour
+
     if comment in alarms:
-        alarms[comment].cancel()
+        alarm = alarms[comment]
+        alarm.cancel()
+        hour_12 = to_12_hour_format(alarm.time.hour)
+        time_str = f"{hour_12}시 {alarm.time.minute}분"
         del alarms[comment]
-        return "Alarm deleted successfully."
+        return f"{time_str} 알람을 삭제했어요."
     else:
-        return "No such alarm to delete."
+        if alarms:
+            closest_comment = min(alarms, key=lambda k: alarms[k].time)
+            alarm = alarms[closest_comment]
+            alarm.cancel()
+            hour_12 = to_12_hour_format(alarm.time.hour)
+            time_str = f"{hour_12}시 {alarm.time.minute}분"
+            del alarms[closest_comment]
+            return f"{time_str} 알람을 삭제했어요."
+        else:
+            return "삭제할 알람이 없어요."
 
 def snooze_alarm(comment, snooze_minutes):
     if comment in alarms:
-        alarms[comment].cancel()
+        alarm = alarms[comment]
+        alarm.cancel()
         del alarms[comment]
-        
+
         now = datetime.now()
         snooze_time = now + timedelta(minutes=snooze_minutes)
         delay = (snooze_time - now).total_seconds()
         command = "aplay /usr/share/sounds/alarm.wav"
         timer = Timer(delay, lambda: subprocess.Popen(command, shell=True))
         timer.start()
-        alarms[comment] = timer
-        return "Alarm snoozed successfully."
+        alarms[comment] = Alarm(snooze_time, timer)
+        return f"[{comment}] {snooze_time.hour}시 {snooze_time.minute}분으로 스누즈 알람 설정했어요."
     else:
-        return "No such alarm to snooze."
-
-def parse_time_expression(time_expression):
-    if re.match(r'\d+:\d+', time_expression):  # HH:MM 형식
-        hour, minute = map(int, time_expression.split(':'))
-        return minute, hour, '*', '*', '*'
-    elif re.match(r'\d+\s*(분|시간)', time_expression):  # N분 또는 N시간 후
-        time_value = int(re.search(r'\d+', time_expression).group())
-
-        if "시간" in time_expression:
-            now = datetime.now() + timedelta(hours=time_value)
-        else:  # "분"이 포함된 경우
-            now = datetime.now() + timedelta(minutes=time_value)
-
-        return now.minute, now.hour, now.day, now.month, '*'
-    else:
-        raise ValueError("올바르지 않은 시간 표현입니다.")
+        return "해당 알람을 찾을 수 없어요."
 
 
 def set_reminder(command, minute, hour, day_of_month, month, day_of_week, comment):
@@ -387,17 +170,23 @@ def set_reminder(command, minute, hour, day_of_month, month, day_of_week, commen
     Timer(delay, lambda: subprocess.Popen(command, shell=True)).start()
     return "Reminder set successfully."
 
-async def alarm_reminder_action(text):
+def alarm_reminder_action(text):
     set_match = re.search(
-        r'\b(?:알람|타이머|일정|깨워줘|깨워)\s*(?:설정|등록|추가|맞춰|켜줘|울려줘|줘)?\b.*?\b(?:오전|오후|에서|후|안에|까지|에|후에)\s*(\d{1,2}:\d{2}|\d+\s*(?:분|시간))\b'
-        r'|\b(\d+\s*(?:분|시간))\s*(?:후|안에|뒤에|후에)?\s*(?:알람|타이머|깨워줘|일어나게|깨워)\b',
-        text, 
+        r'\b(?:알람|타이머|일정|깨워줘|깨워)\s*(?:설정|등록|추가|맞춰|켜줘|울려줘|줘)?\b.*?\b(?:오전|오후|에서|후|안에|까지|에|후에)?\s*'
+        r'((?:\d+\s*시간)?\s*(?:\d+\s*분)?|\d{1,2}:\d{2}|\d+\s*시)\b'
+        r'|\b((?:\d+\s*시간)?\s*(?:\d+\s*분)?|\d+\s*시)\s*(?:후|안에|뒤에|후에)?\s*(?:알람|타이머|깨워줘|일어나게|깨워)\b',
+        text,
+        re.IGNORECASE
+    )
+    set_match = re.search(
+        r'(\d+\s*시간\s*\d*\s*분?|\d+\s*분|\d{1,2}:\d{2}|\d+\s*시)(?:\s*후에|\s*뒤에|\s*안에|\s*에)?\s*(알람|타이머|일정|깨워줘|깨워)',
+        text,
         re.IGNORECASE
     )
     delete_match = re.search(
-        r'\b(?:삭제|제거|취소|꺼줘|꺼)?\s*(?:알람|타이머)?\b\s*(\w+)?\s*(?:알람|타이머)?\s*(?:삭제|제거|취소|꺼줘|꺼)?\b', 
-
-        text, 
+        r'(?:알람|타이머)\s*(\w+)?\s*(?:삭제|제거|취소|꺼줘|꺼)\b'
+        r'|(?:삭제|제거|취소|꺼줘|꺼)\s*(\w+)?\s*(?:알람|타이머)\b',
+        text,
         re.IGNORECASE
     )
 
@@ -412,18 +201,16 @@ async def alarm_reminder_action(text):
         text, 
         re.IGNORECASE
     )
-
-    if set_match:
-        # Check which group captured the time expression
+    
+    if set_match and (set_match.group(1) or set_match.group(2)):
         time_expression = set_match.group(1) or set_match.group(2)
-        if time_expression is None:
-            return "No time specified for the alarm."
-        minute, hour, dom, month, dow = parse_time_expression(time_expression)
+        hour, minute, dom, month, dow = parse_time_expression(time_expression)
+        print(f"parse:{hour}, {minute}")
         command = "aplay alarm.wav"
         comment = "Alarm"
         return set_alarm(command, minute, hour, dom, month, dow, comment)
     elif delete_match:
-        comment = delete_match.group(1)
+        comment = delete_match.group(1) or delete_match.group(2)
         return delete_alarm(comment)
     elif snooze_match:
         snooze_time = snooze_match.group(1)
@@ -435,9 +222,9 @@ async def alarm_reminder_action(text):
         reminder_text = remind_match.group(2)
         if time_expression is None:
             return "No time specified for the reminder."
-        minute, hour, dom, month, dow = parse_time_expression(time_expression)
+        hour, minute, dom, month, dow = parse_time_expression(time_expression)
         command = f"""
-bash -c 'source /env/bin/activate && python -c "import pyttsx3; 
+bash -c 'source /gpt/bin/activate && python -c "import pyttsx3; 
 engine = pyttsx3.init(); 
 engine.setProperty(\\"rate\\", 145); 
 engine.say(\\"Reminder: {reminder_text}\\"); 
