@@ -138,7 +138,7 @@ def stop_alarm():
         return f"[{oldest_comment}] 알람 종료에 실패했어요."
 
     del running_processes[oldest_comment]
-    return f" "
+    return f"끔"
 
 def set_reminder(command, minute, hour, day_of_month, month, day_of_week, comment):
     now = datetime.now()
@@ -235,7 +235,7 @@ engine.runAndWait()"'
         if time_expression:
             try:
                 hour, minute, dom, month, dow = parse_time_expression(time_expression)
-                command = "aplay ../res/alarm.wav"
+                command = "play ../res/alarm.wav vol 0.5"
                 comment = "Alarm"
                 return set_alarm(command, minute, hour, dom, month, dow, comment)
             except Exception as e:

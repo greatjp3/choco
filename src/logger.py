@@ -74,6 +74,17 @@ class Logger:
         self.terminal.flush()
         self.log.write(formatted_message)
         self.log.flush()
+    
+    def warning(self, message):
+        """ 일반 정보 메시지 기록 (호출된 코드 정보 포함) """
+        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        caller_info = self._get_caller_info()
+        formatted_message = f"{timestamp} [{caller_info}] [WARN]: {message}\n"
+        
+        self.terminal.write(formatted_message)
+        self.terminal.flush()
+        self.log.write(formatted_message)
+        self.log.flush()
 
     def flush(self):
         """ 터미널과 로그 버퍼 동기화 """

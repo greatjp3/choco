@@ -5,6 +5,8 @@ import redis
 import hashlib
 from routes import *
 
+import volume_agent
+
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
 stop_event = threading.Event()
 process_thread = None
@@ -25,6 +27,8 @@ def process_agent(text):
 def main():
     global process_thread
     already_wakeup = False
+
+    volume_agent.volume_control(100)
     try:
         test()
     except Exception as e:
