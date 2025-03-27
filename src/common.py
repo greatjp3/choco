@@ -46,6 +46,15 @@ def load_settings():
         logger.write(f"⛔ 설정 파일 로드 중 오류 발생: {e}\n")
         return None
 
+def save_settings(settings):
+    """설정 파일 저장 함수"""
+    settings_path = SOURCE_DIR / "settings.json"
+    try:
+        with open(settings_path, "w") as f:
+            json.dump(settings, f, indent=4)
+    except Exception as e:
+        logger.write(f"⛔ 설정 파일 저장 중 오류 발생: {e}\n")
+
 def initialize_system():
     return None
 
