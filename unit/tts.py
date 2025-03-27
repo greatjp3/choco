@@ -3,7 +3,12 @@ import pygame.mixer as mixer
 from io import BytesIO
 from pydub import AudioSegment
 
-text = "네!"
+#text = ["소리 최대",
+#        "소리 크게",
+#        "소리 중간",
+#        "소리 작게",
+#        "음소거"]
+text = "헬로 꽉꽉이들"
 
 SPEED = 1.5
 mp3_fp = BytesIO()
