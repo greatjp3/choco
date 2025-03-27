@@ -23,6 +23,7 @@ class Volume:
             volume = settings["volume"]
         except:
             logger.error("settings.json(volume) load failed")
+
         return volume
     
     def save_volume(self, volume):
@@ -74,7 +75,6 @@ class Volume:
             subprocess.run(["pactl", "set-sink-volume", sink, f"{volume}%"], check=True)
             self.current_volume = volume
             self.logger.info(f"🔊 시스템 볼륨이 {volume}%로 설정되었습니다.")
-            self.volume_speak(self.levels.index(volume))  # 리턴 전에 호출
             self.save_volume(volume)
         except Exception as e:
             self.logger.error(f"⛔ PulseAudio 볼륨 설정 실패: {e}")
@@ -90,7 +90,8 @@ class Volume:
             else:
                 new_volume = self.levels[idx]
                 self.volume_control(new_volume)  # ✅ 볼륨 값 전달
-
+            
+            self.volume_speak(self.levels.index(new_volume))
         except ValueError:
             self.logger.error(f"현재 볼륨({self.current_volume})이 levels 목록에 없습니다.")
         return None
@@ -102,6 +103,8 @@ class Volume:
                 new_volume = self.levels[idx - 1]
                 self.volume_control(new_volume)  # ✅ 볼륨 값 전달
                 self.current_volume = new_volume
+                self.volume_speak(self.levels.index(new_volume))
+
         except ValueError:
             self.logger.error(f"현재 볼륨({self.current_volume})이 levels 목록에 없습니다.")
         return None
@@ -110,14 +113,27 @@ class Volume:
         new_volume = self.levels[-1]
         self.volume_control(new_volume)
         self.current_volume = new_volume
+        self.volume_speak(self.levels.index(new_volume))
+        return None
+
+    def volume_med(self):
+        new_volume = self.levels[len(self.levels)//2]
+        self.volume_control(new_volume)
+        self.current_volume = new_volume
+        self.volume_speak(self.levels.index(new_volume))
         return None
 
     def volume_min(self):
         new_volume = self.levels[0]
         self.volume_control(new_volume)
         self.current_volume = new_volume
+        self.volume_speak(self.levels.index(new_volume))
         return None
 
+    def volume_init(self):
+        self.volume_control(self.current_volume)
+        return None
+    
 v = Volume()
 
 def volume_control_action(text):
@@ -136,6 +152,11 @@ def volume_control_action(text):
         text,
         re.IGNORECASE
     )
+    med_match = re.search(
+        r'(?:볼륨|소리)\s*(?:\w+)?\s*중간\b',
+        text,
+        re.IGNORECASE
+    )
     min_match = re.search(
         r'(?:볼륨|소리)\s*(?:\w+)?\s*최소\b|조용히|음소거',
         text,
@@ -149,6 +170,8 @@ def volume_control_action(text):
         return v.volume_down()
     elif max_match:
         return v.volume_max()
+    elif med_match:
+        return v.volume_med()
     elif min_match:
         return v.volume_min()
     else:

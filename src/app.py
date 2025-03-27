@@ -4,7 +4,7 @@ from common import *
 import redis
 import hashlib
 from routes import *
-
+import subprocess
 import volume_agent
 
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
@@ -28,7 +28,16 @@ def main():
     global process_thread
     already_wakeup = False
 
-    volume_agent.volume_control(100)
+    volume_agent.v.volume_init()
+    file_name = "../res/startup.wav"
+    if os.path.exists(file_name):
+        try:
+            subprocess.run(["aplay", file_name], check=True)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"🔈 aplay 실패: {e}")
+    else:
+        logger.warning(f"🔇 오디오 파일이 존재하지 않음: {file_name}")
+
     try:
         test()
     except Exception as e:
