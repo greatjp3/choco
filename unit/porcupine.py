@@ -16,7 +16,6 @@ load_dotenv()
 
 # Picovoice 액세스 키 설정 (Picovoice 계정에서 발급받아야 함)
 ACCESS_KEY = os.getenv("PV_ACCESS_KEY")  # 또는 "your_access_key_here"
-PPN_PATH = "your_wake_word.ppn"
 
 def test_pvporcupine():
     """pvporcupine Wake Word 감지 테스트"""
@@ -27,8 +26,7 @@ def test_pvporcupine():
         # Porcupine 인스턴스 생성
         porcupine = pvporcupine.create(
             access_key=ACCESS_KEY,
-            keywords=keywords,
-            keyword_paths=[PPN_PATH]
+            keywords=keywords
         )
 
         # PyAudio 스트림 설정
