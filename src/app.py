@@ -6,6 +6,7 @@ import hashlib
 from routes import *
 import subprocess
 import volume_agent
+import alarm_agent
 
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
 stop_event = threading.Event()
@@ -46,6 +47,8 @@ def main():
     while True:
         if already_wakeup == False:
             wake_word()
+            if(alarm_agent.is_any_alarm_running()):
+                alarm_agent.stop_alarm()
 
         speak_ack()
         print("ack!")
