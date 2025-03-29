@@ -163,7 +163,6 @@ def volume_control_action(text):
         re.IGNORECASE
     )
 
-     # ✅ 명령 우선순위 정리: 삭제 → 중지 → 스누즈 → 리마인더 → 설정
     if up_match:
         return v.volume_up()
     elif down_match:
