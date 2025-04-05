@@ -58,7 +58,7 @@ def save_settings(settings):
 def initialize_system():
     return None
 
-def wake_word(sensitivity=1.0):
+def wake_word(sensitivity=0.8):
     """키워드 감지를 위한 wake word 함수"""
     with open("settings.json", "r") as f:
         settings = json.load(f)
