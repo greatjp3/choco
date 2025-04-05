@@ -7,6 +7,7 @@ from routes import *
 import subprocess
 import volume_agent
 import alarm_agent
+from weather_daemon import start_weather_daemon
 
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
 stop_event = threading.Event()
@@ -28,6 +29,8 @@ def process_agent(text):
 def main():
     global process_thread
     already_wakeup = False
+
+    start_weather_daemon()
 
     volume_agent.v.volume_init()
     file_name = "../res/startup.wav"

@@ -5,8 +5,9 @@ from semantic_router import Route
 from actions import *
 from dotenv import load_dotenv
 
-from alarm_agent import alarm_reminder_action
+from alarm_agent import alarm_action
 from volume_agent import volume_control_action
+from weather_agent import weather_action
 
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
@@ -32,56 +33,50 @@ volume_route = Route(
 )
 
 alarm_route = Route(
-    name="alarm_reminder_action",
+    name="alarm_action",
     utterances=[
-        "알람 설정해줘",
-        "몇시에 알람해 줘",
-        "몇시 몇 분 후에 알람해줘",
-        "알람 취소"
-    ]
-)
-
-timer_route = Route(
-    name="timer_reminder_action",
-    utterances=[
-        "몇분 타이머",
+        "몇 시에 알람해 줘",
+        "몇 시 몇 분에 알람",
+        "알람 취소",
+        "몇 분 타이머",
+        "몇 시간 타이머",
         "몇 분 후에 알려줘",
         "몇 시간 후에 알려줘",
-        "몇 시간 몇분후에 알람"
+        "몇 시간 몇 분 후에 알람",
+        "타이머 취소"
     ]
 )
 
-spotify_route = Route(
-    name="spotify_action",
+youtube_route = Route(
+    name="youtube_action",
     utterances=[
-        "play some music",
-        "next song",
-        "pause the music",
-        "play earth wind and fire on Spotify",
-        "play my playlist"
+        "음악 재생",
+        "음악 켜줘",
+        "다음 곡",
+        "이전 곡",
+        "음악 꺼줘"
     ]
 )
 
 weather_route = Route(
-    name="open_weather_action",
+    name="weather_action",
     utterances = [
-        "오늘 날씨 어때?",
+        "날씨?"
+        "오늘 날씨?",
         "날씨 알려줘",
         "현재 기온이 몇 도야?",
         "비 올 예정이야?",
-        "서울 날씨는 어때?",
-        "어제 보다 오늘 날씨?"
+        "어제 보다 오늘 날씨?",
+        "미세 먼지",
+        "내일 추워?"
     ]
-
 )
 
-calendar_route = Route(
-    name="caldav_action",
+aquarium_route = Route(
+    name="aquarium_action",
     utterances = [
-        "회의 일정 잡아줘",
-        "내 일정에 뭐가 있어?",
-        "이벤트 추가해줘",
-        "오늘 남은 할 일이 뭐야?"
+        "어항 켜줘",
+        "어항 꺼줘"
     ]
 )
 
@@ -101,8 +96,7 @@ general_route = Route(
     ]
 )
 
-# routes = [alarm_route, timer_route, spotify_route, weather_route, calendar_route, general_route]
-routes = [volume_route, alarm_route, spotify_route, weather_route, calendar_route, general_route]
+routes = [volume_route, alarm_route, youtube_route, weather_route, aquarium_route, general_route]
 
 # Initialize RouteLayer with the encoder and routes
 rl = RouteLayer(encoder=encoder, routes=routes)
@@ -130,7 +124,7 @@ class Action:
     def perform(self, **kwargs):
         try:
             action_func = globals()[self.action_name]
-            logger.info(f"Performing action: {self.action_name} with text: {self.text}")
+            # logger.info(f"Performing action: {self.action_name} with text: {self.text}")
             return action_func(self.text, **kwargs)
         except KeyError:
             logger.warning(f"Action {self.action_name} not found. Falling back to llm_action.")

@@ -471,13 +471,18 @@ def get_saved_weather_data(date: str):
     # DATA_DIR 디렉토리 내의 파일들 중 지정된 날짜로 시작하는 JSON 파일을 찾습니다.
     for filename in os.listdir(DATA_DIR):
         if filename.endswith(".json") and filename.startswith(f"{date}_"):
-            # 파일명이 "날짜_시간.json" 형식인지 확인합니다. (예: 20250405_2330.json)
+            # 파일명이 "날짜_시간.json" 또는 "날짜_시간_forecast.json" 형식인지 확인합니다.
             time_part = filename[len(date) + 1: len(date) + 5]  # 날짜 뒤의 '_' 이후 4자리 추출
             if len(time_part) == 4 and time_part.isdigit():
                 matched_files.append(filename)
     
     if not matched_files:
         return None  # 해당 날짜의 파일이 없으면 None 반환합니다.
+    
+    # _forecast가 없는 파일을 우선적으로 사용합니다.
+    non_forecast_files = [f for f in matched_files if "_forecast" not in f]
+    if non_forecast_files:
+        matched_files = non_forecast_files
     
     # 시간 부분(HHMM)을 기준으로 내림차순 정렬합니다 (가장 늦은 시간 우선).
     matched_files.sort(key=lambda x: x[len(date) + 1: len(date) + 5], reverse=True)

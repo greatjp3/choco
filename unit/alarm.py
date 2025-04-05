@@ -21,7 +21,7 @@ def main():
     for text in test_word:
         print(text)
         try:
-            response = alarm_reminder_action(text)
+            response = alarm_action(text)
         except:
             print("except")
 
