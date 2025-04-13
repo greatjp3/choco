@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from alarm_agent import alarm_action
 from volume_agent import volume_control_action
 from weather_agent import weather_action
+from youtube_agent import youtube_action
 
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
@@ -54,7 +55,8 @@ youtube_route = Route(
         "음악 켜줘",
         "다음 곡",
         "이전 곡",
-        "음악 꺼줘"
+        "음악 꺼줘",
+        "음악 틀어줘"
     ]
 )
 

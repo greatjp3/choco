@@ -8,6 +8,7 @@ import subprocess
 import volume_agent
 import alarm_agent
 from weather_daemon import start_weather_daemon
+from youtube_agent import init_youtube_agent, youtube_pause, youtube_resume, youtube_stop, is_playing, is_pause, pause
 
 redis_client = redis.StrictRedis(host='localhost', port=6379, db=0, decode_responses=True)
 stop_event = threading.Event()
@@ -22,15 +23,27 @@ def process_agent(text):
     except Exception as e:
         logger.error(f"process_agent 실행 중 오류 발생: {e}")
 
-    if response :
+    if response == "volume":
+        print("response: volume")
+        if is_pause():
+            youtube_resume()
+            pause(False)
+    elif response == "youtube":
+        print(f"응답: {response}")
+    elif response :
         text_to_speech(response)
         print(f"응답: {response}")
+        if is_pause():
+            youtube_stop()
+            pause(False)
+
     
 def main():
     global process_thread
     already_wakeup = False
 
     start_weather_daemon()
+    init_youtube_agent()
 
     volume_agent.v.volume_init()
     file_name = "../res/startup.wav"
@@ -52,6 +65,10 @@ def main():
             wake_word()
             if(alarm_agent.is_any_alarm_running()):
                 alarm_agent.stop_alarm()
+            
+            if is_playing():
+                youtube_pause()
+                pause(True)
 
         speak_ack()
         print("ack!")
