@@ -103,7 +103,7 @@ def volume_control(vol, card=0, control="Headphone"):
 volume_control(70, card=0, control="Headphone")  # 볼륨 50% 설정
 
 # Example usage:
-query = "일어나라 게으른 내 친구야"  # Search term
+query = "color of the night"  # Search term
 results = search_youtube(query)
 
 print("\n🎵 YouTube Search Results:")
