@@ -127,7 +127,7 @@ def player_worker():
         title, _, _ = music_list[current_track_index]
         filepath = os.path.join(PLAYLIST_DIR, title + ".opus")
 
-        if not os.path.exists(filepath):
+        if len(music_list)==1 and not os.path.exists(filepath):
             print(f"⏳ {filepath} 다운로드 대기 (최대 60초)")
             for _ in range(60):
                 if os.path.exists(filepath):
@@ -215,7 +215,7 @@ def download_and_tag(music_list, output_dir=PLAYLIST_DIR):
         try:
             with yt_dlp.YoutubeDL(ydl_opts_download) as ydl:
                 ydl.download([url])
-                # print(f"🎧 다운로드 완료: {audio_path}")
+                print(f"🎧 다운로드 완료: {audio_path}")
             save_thumbnail(audio_path, title, thumb_url, output_dir)
             saved_music_list.append(title)
         except Exception as e:
@@ -468,13 +468,13 @@ def youtube_action(text):
     text = text.strip().lower()
 
     # 🔍 검색 + 재생 (예: "xxx 노래 틀어줘", "xxx 음악 켜줘")
-    search_match = re.search(r"^(.+?)\s*(노래|음악)\s*(재생|틀어|켜줘)", text)
+    search_match = re.match(r"^(.+?)\s+(노래|음악)\s*(재생|재생해줘|틀어줘|틀어|켜줘|켜줄래|틀어줄래)$", text)
 
     # ▶️ 단순 재생 요청 (예: "재생", "노래 틀어줘", "음악 켜줘")
-    play_match = re.search(r"(재생|노래\s*(재생|틀어|켜줘)|음악\s*(재생|틀어|켜줘))", text)
+    play_match = re.fullmatch(r"(재생|노래\s*(재생|틀어줘|켜줘)|음악\s*(재생|틀어줘|켜줘))", text)
 
     # ⏹️ 중지
-    stop_match = re.search(r"(꺼줘|정지|중지)", text)
+    stop_match = re.search(r"(꺼|정지|중지)", text)
 
     # ⏸️ 일시정지
     pause_match = re.search(r"(일시\s*정지|멈춰)", text)
