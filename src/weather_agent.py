@@ -76,7 +76,7 @@ def get_saved_weather(date: str = None):
     # 저장된 날씨 정보를 불러옵니다.
     result = get_saved_weather_data(dates)
     if result is None:
-        return "해당 날짜의 날씨 정보가 없습니다."
+        return True, "weather", "해당 날짜의 날씨 정보가 없습니다."
     
     data, sky, precipitation, lowest_temp, highest_temp, current_temp, pm10_val, pm10_grade, pm25_val, pm25_grade = result
        
@@ -96,7 +96,7 @@ def get_saved_weather(date: str = None):
         weather_msg = (f"{natural_date} 잠원동의 날씨는 {weather_description}입니다. "
                     f"최저 온도는 {int(float(lowest_temp))}도, 최고 온도는 {int(float(highest_temp))}도 입니다. 미세먼지는 {pm10_grade}, 초미세먼지는 {pm25_grade} 입니다.")
 
-    return weather_msg
+    return True, "weather", weather_msg
 
 def compare_saved_weather(date1: str, date2: str):
     # 입력된 자연어 날짜를 "YYYYMMDD" 형식으로 변환합니다.
@@ -143,7 +143,7 @@ def compare_saved_weather(date1: str, date2: str):
         f"최저 온도는 {low_diff_deg}도 {low_diff}, 최고 온도는 {high_diff_deg}도 {high_diff}"
     )
     
-    return weather_msg
+    return True, "weather", weather_msg
 
 def get_saved_dust(date: str):
     print(date)
@@ -176,7 +176,7 @@ def weather_action(text):
     if "날씨" in text:
         return get_saved_weather("오늘")
     
-    return "아빠 도와줘요"
+    return False, "weather", None
     
 # ✅ 테스트 실행
 if __name__ == "__main__":

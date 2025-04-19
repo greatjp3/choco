@@ -109,7 +109,7 @@ def set_alarm(command, alarm_time, hour, minute, comment):
     else:
         response = f"{diff_hour}시 {alarm_time.minute}분에 알람을 울릴께요."
 
-    return response
+    return True, "alarm", response
 
 def delete_alarm(comment):
     def to_12_hour_format(hour):
@@ -121,7 +121,7 @@ def delete_alarm(comment):
         hour_12 = to_12_hour_format(alarm.time.hour)
         time_str = f"{hour_12}시 {alarm.time.minute}분"
         del alarms[comment]
-        return f"{time_str} 알람을 삭제했어요."
+        return True, "alarm", f"{time_str} 알람을 삭제했어요."
     else:
         if alarms:
             closest_comment = min(alarms, key=lambda k: alarms[k].time)
@@ -130,13 +130,13 @@ def delete_alarm(comment):
             hour_12 = to_12_hour_format(alarm.time.hour)
             time_str = f"{hour_12}시 {alarm.time.minute}분"
             del alarms[closest_comment]
-            return f"{time_str} 알람을 삭제했어요."
+            return True, "alarm", f"{time_str} 알람을 삭제했어요."
         else:
-            return "삭제할 알람이 없어요."
+            return True, "alarm", "삭제할 알람이 없어요."
 
 def stop_alarm():
     if not running_processes:
-        return "종료할 알람이 없어요."
+        return True, "alarm", "종료할 알람이 없어요."
 
     sorted_comments = sorted(running_processes.keys())
     oldest_comment = sorted_comments[0]
@@ -146,10 +146,10 @@ def stop_alarm():
         os.killpg(proc.pid, signal.SIGTERM)  # 프로세스 그룹 전체 종료
     except Exception as e:
         print(f"종료 실패: {e}")
-        return f"[{oldest_comment}] 알람 종료에 실패했어요."
+        return True, "alarm", f"[{oldest_comment}] 알람 종료에 실패했어요."
 
     del running_processes[oldest_comment]
-    return f"끔"
+    return True, "alarm", f"끔"
 
 def alarm_action(text):
     set_match = re.search(
@@ -212,9 +212,9 @@ def alarm_action(text):
                 comment = "Alarm"
                 return set_alarm(command, alarm_time, hour, minute, comment)
             except Exception as e:
-                return f"(Alarm) 시간 파싱 오류: {str(e)}"
+                return True, "alarm", f" 시간 파싱 오류: {str(e)}"
     else:
-        return "(Alarm) 시간 표현을 이해하지 못했어요."
+        return True, "alarm", "시간 표현을 이해하지 못했어요."
 
 def is_alarm_running(comment):
     return alarm_status.get(comment) == "running"

@@ -1,98 +1,172 @@
-from logger import logger
-import time
+import os
 import re
-import threading
+import subprocess
+import signal
+from threading import Timer
+from datetime import datetime, timedelta
 
-# 실행 중인 타이머 저장
-active_timers = {}
-timer_count = 0  # 타이머 ID를 숫자로 관리
+timers = {}
+running_processes = {}
+timer_status = {}  # 전역
 
-def parse_duration(duration: str) -> int:
-    """'1h 30m 10s' 같은 복합 시간 형식을 초 단위로 변환"""
+class Timers:
+    def __init__(self, time, timer):
+        self.time = time
+        self.timer = timer
+
+    def cancel(self):
+        self.timer.cancel()
+
+def parse_duration_to_seconds(time_expression):
+    hour_match = re.search(r'(\d+)\s*시간', time_expression)
+    minute_match = re.search(r'(\d+)\s*분', time_expression)
+
+    hours = int(hour_match.group(1)) if hour_match else 0
+    minutes = int(minute_match.group(1)) if minute_match else 0
+
+    return hours * 3600 + minutes * 60
+
+
+def set_timer(command, minute, hour, day_of_month, month, day_of_week, comment):
+    now = datetime.now()
+    now = now.replace(second=0, microsecond=0)
+
+    if day_of_month == '*' or month == '*':
+        alarm_time = now.replace(hour=hour, minute=minute)
+        if alarm_time < now:
+            alarm_time += timedelta(days=1)
+    else:
+        alarm_time = now.replace(minute=minute, hour=hour, day=day_of_month, month=month, second=0, microsecond=0)
+        if alarm_time < now:
+            alarm_time += timedelta(days=1)
+
+    unique_comment = f"{comment}_{alarm_time.strftime('%H%M')}"
+
+    def run_command():
+        proc = subprocess.Popen(command, shell=True, preexec_fn=os.setsid)  # 새로운 세션 id로 실행
+        running_processes[unique_comment] = proc
+        timer_status[unique_comment] = "running"
+        
+    delay = (alarm_time - now).total_seconds()
+    timer = Timer(delay, run_command)  # pass the function itself, not the result of its call
+    timer.start()
+
+    timers[unique_comment] = Timers(alarm_time, timer)
+    diff = alarm_time - now
+    total_minutes = int(diff.total_seconds() // 60)
+    diff_hours = total_minutes // 60
+    diff_minutes = total_minutes % 60
+
+    display_hour = hour - 12 if hour > 12 else hour
+
+    if diff_hours > 0:
+        if diff_minutes > 0:
+            response = f"{diff_hours}시간 {diff_minutes}분 후인 {display_hour}시 {minute}분에 타이머를 울릴께요."
+        else:
+            response = f"{diff_hours}시간 후인 {display_hour}시 {minute}분에 타이머를 울릴께요."
+    else:
+        response = f"{diff_minutes}분 후인 {display_hour}시 {minute}분에 타이머를 울릴께요."
+
+    print(response)
+    return response
+
+def delete_timer(comment):
+    def to_12_hour_format(hour):
+        return hour - 12 if hour > 12 else hour
+
+    if comment in timers:
+        alarm = timers[comment]
+        alarm.cancel()
+        hour_12 = to_12_hour_format(alarm.time.hour)
+        time_str = f"{hour_12}시 {alarm.time.minute}분"
+        del timers[comment]
+        return f"{time_str} 알람을 삭제했어요."
+    else:
+        if timers:
+            closest_comment = min(timers, key=lambda k: timers[k].time)
+            alarm = timers[closest_comment]
+            alarm.cancel()
+            hour_12 = to_12_hour_format(alarm.time.hour)
+            time_str = f"{hour_12}시 {alarm.time.minute}분"
+            del timers[closest_comment]
+            return f"{time_str} 알람을 삭제했어요."
+        else:
+            return "삭제할 알람이 없어요."
+
+def stop_timer():
+    if not running_processes:
+        return "종료할 알람이 없어요."
+
+    sorted_comments = sorted(running_processes.keys())
+    oldest_comment = sorted_comments[0]
+    proc = running_processes[oldest_comment]
+
     try:
-        pattern = r'(?:(\d+)h)?\s*(?:(\d+)m)?\s*(?:(\d+)s)?'
-        match = re.match(pattern, duration.strip())
-
-        if not match:
-            raise ValueError("올바른 형식으로 시간을 입력하세요. 예: '10s', '5m', '1h 30m 10s'")
-
-        hours = int(match.group(1)) if match.group(1) else 0
-        minutes = int(match.group(2)) if match.group(2) else 0
-        seconds = int(match.group(3)) if match.group(3) else 0
-
-        total_seconds = hours * 3600 + minutes * 60 + seconds
-
-        if total_seconds <= 0:
-            raise ValueError("시간은 0초보다 커야 합니다.")
-
-        return total_seconds
-
-    except ValueError as e:
-        logger.write(f"⚠️ 타이머 설정 오류 (ValueError): {duration} | {e}\n")
-        return -1
-
+        os.killpg(proc.pid, signal.SIGTERM)  # 프로세스 그룹 전체 종료
     except Exception as e:
-        logger.write(f"⛔ 예상치 못한 오류 발생 (parse_duration): {duration} | {e}\n")
-        return -1
+        print(f"종료 실패: {e}")
+        return f"[{oldest_comment}] 알람 종료에 실패했어요."
 
-def timer_thread(timer_id: str, total_seconds: int):
-    """타이머 실행 스레드"""
-    try:
-        time.sleep(total_seconds)
-        if timer_id in active_timers:
-            print(f"⏰ {timer_id} 종료! {total_seconds}초가 지났습니다.")
-            logger.write(f"✅ {timer_id} 종료: {total_seconds}초 경과\n")
-            del active_timers[timer_id]
-    except Exception as e:
-        logger.write(f"⛔ 타이머 실행 중 오류 발생 ({timer_id}): {e}\n")
-        print(f"⛔ 타이머 실행 중 오류 발생: {e}")
+    del running_processes[oldest_comment]
+    return f"끔"
 
-def start_timer(duration: str) -> str:
-    """타이머 설정 및 실행"""
-    global timer_count
-    total_seconds = parse_duration(duration)
+def timer_action(text):
+    delete_match = re.search(
+        r'(?:타이머)\s*(\w+)?\s*(?:삭제|제거|취소)\b'
+        r'|(?:삭제|제거|취소)\s*(\w+)?\s*(?:타이머)\b',
+        text,
+        re.IGNORECASE
+    )
+    stop_match = re.search(
+        r'(?:타이머)\s*(\w+)?\s*(?:꺼줘|꺼)\b'
+        r'|(?:꺼줘|꺼)\s*(\w+)?\s*(?:타이머)\b',
+        text,
+        re.IGNORECASE
+    )
+    set_match = re.search(
+        r'(?:'
+            r'(?P<time1>'
+                r'(?:\d+\s*시간\s*\d+\s*분|\d+\s*시간|\d+\s*분)'
+            r')'
+            r'(?:\s*(?:후에|뒤에|안에|동안))?'
+            r'\s*(?:알람|타이머)'
+            r'\s*(?:설정|등록|추가|맞춰|켜줘|울려줘|줘)?'
+        r')'
+        r'|(?:'
+            r'(?:알람|타이머)'
+            r'\s*(?:설정|등록|추가|맞춰|켜줘|울려줘|줘)?\s*'
+            r'(?P<time2>'
+                r'(?:\d+\s*시간\s*\d+\s*분|\d+\s*시간|\d+\s*분)'
+            r')'
+            r'(?:\s*(?:후에|뒤에|안에|동안))?'
+        r')',
+        text,
+        re.IGNORECASE
+    )
 
-    if total_seconds <= 0:
-        return "올바른 형식으로 시간을 입력하세요. 예: '10s', '5m', '1h 30m 10s'"
+    if delete_match:
+        comment = delete_match.group(1) or delete_match.group(2)
+        return delete_timer(comment)
+    elif stop_match:
+        return stop_timer()
+    elif set_match:
+        print("set_match")
+        time_expression = set_match.group(1) or set_match.group(2)
+        try:
+            duration_seconds = parse_duration_to_seconds(time_expression)
+            future = datetime.now() + timedelta(seconds=duration_seconds)
 
-    try:
-        timer_count += 1
-        timer_id = f"{timer_count}번 타이머"
-        timer_thread_instance = threading.Thread(target=timer_thread, args=(timer_id, total_seconds))
-        timer_thread_instance.start()
+            hour = future.hour
+            minute = future.minute
+            dom = future.day
+            month = future.month
+            dow = '*'
 
-        active_timers[timer_id] = (timer_thread_instance, total_seconds)
-        logger.write(f"✅ {timer_id} 시작: {duration} 후 알림!\n")
-        return f"⏳ {timer_id} 시작: {duration} 후 알림!"
-
-    except threading.ThreadError as e:
-        logger.write(f"⛔ 타이머 스레드 시작 실패: {e}\n")
-        return "타이머를 설정하는 중 오류가 발생했습니다."
-
-def cancel_timer(timer_id: str) -> str:
-    """설정된 타이머 취소"""
-    try:
-        if timer_id in active_timers:
-            del active_timers[timer_id]
-            logger.write(f"⏹ {timer_id} 취소됨\n")
-            return f"⏹ {timer_id}가 취소되었습니다."
-        logger.write(f"⚠️ 타이머 취소 실패: {timer_id}가 존재하지 않음\n")
-        return f"⚠️ '{timer_id}' 타이머를 찾을 수 없습니다."
-    except KeyError as e:
-        logger.write(f"⛔ 타이머 취소 중 오류 발생 ({timer_id}): {e}\n")
-        return "타이머 취소 중 오류가 발생했습니다."
-
-def list_timers() -> str:
-    """현재 실행 중인 타이머 목록 반환"""
-    try:
-        if not active_timers:
-            logger.write("🔍 현재 실행 중인 타이머 없음\n")
-            return "🔍 현재 실행 중인 타이머가 없습니다."
-
-        timer_list = "\n".join([f"⏳ {timer_id} - 남은 시간: {duration}초" for timer_id, (_, duration) in active_timers.items()])
-        logger.write(f"📋 현재 실행 중인 타이머 목록 요청\n")
-        return f"📋 현재 실행 중인 타이머 목록:\n{timer_list}"
-
-    except Exception as e:
-        logger.write(f"⛔ 타이머 목록 조회 중 오류 발생: {e}\n")
-        return "타이머 목록을 불러오는 중 오류가 발생했습니다."
+            command = "play ../res/timer.wav vol 0.5"
+            comment = "Timer"
+            print("return timer")
+            return set_timer(command, minute, hour, dom, month, dow, comment)
+        except Exception as e:
+            return f"(Timer) 시간 파싱 오류: {str(e)}"
+    else:
+        return ("아빠 도와줘요")

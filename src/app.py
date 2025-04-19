@@ -17,26 +17,26 @@ process_thread = None
 def process_agent(text):
     print(f"질문: {text}")
     try:
-        response = action_router(text)
+        action, result, response = action_router(text)
+        print(f"action: {action}, result: {result}, response: {response}")
         if stop_event.is_set():
             return
     except Exception as e:
         logger.error(f"process_agent 실행 중 오류 발생: {e}")
 
-    if response == "volume":
+    if result == "volume":
         print("response: volume")
         if is_pause():
             youtube_resume()
             pause(False)
-    elif response == "youtube":
-        print(f"응답: {response}")
-    elif response :
+    elif result == "youtube":
+        print(f"응답: {result}")
+    elif action==True and response != None:
         text_to_speech(response)
         print(f"응답: {response}")
         if is_pause():
             youtube_stop()
             pause(False)
-
     
 def main():
     global process_thread
@@ -83,6 +83,9 @@ def main():
         text = recognize_audio()
 
         if text == None:
+            if is_pause():
+                youtube_resume()
+                pause(False)
             continue
 
         if "computer" in text or "컴퓨터" in text:

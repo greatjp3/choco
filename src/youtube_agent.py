@@ -229,10 +229,10 @@ def download_worker():
             if not music_list:
                 print("📭 다운로드할 music_list가 없습니다.")
                 continue
-            # print("⬇️ 다운로드 시작...")
+            print("⬇️ 다운로드 시작...")
             download_stop_event.clear()
             download_and_tag(music_list)
-            # print("✅ 다운로드 완료. 대기 중...")
+            print("✅ 다운로드 완료. 대기 중...")
         elif command == "stop":
             print("🛑 다운로드 중단 요청 수신.")
             download_stop_event.set()
@@ -248,7 +248,7 @@ def search_worker():
         if results:
             music_list = results
             update_playlist(music_list)
-            # download_command_queue.put("download")
+            download_command_queue.put("download")
             # print(f"🔎 {len(results)}개 결과")
         else:
             print("❌ 검색 결과 없음 또는 중단됨.")
@@ -368,6 +368,9 @@ def get_playlist():
 def youtube_search(text):
     global music_list, current_track_index
 
+    download_stop_event.set()
+    search_stop_event.set()
+
     search_query = f"ytsearch1:music {text}"
     ydl_opts_info = {
         "quiet": False,
@@ -409,7 +412,7 @@ def youtube_play():
     stop_requested = False
     music_list = get_playlist()
     if not music_list:
-        return "재생할 곡이 없습니다."
+        return True, "youtube", "재생할 곡이 없습니다."
     if is_playing:
         stop_mpv()
     # if not is_playing:
@@ -419,27 +422,29 @@ def youtube_play():
         player_thread = threading.Thread(target=player_worker, daemon=True)
         player_thread.start()
 
-    return "youtube"
+    return True, "youtube", None
 
 
 def youtube_stop():
     global stop_requested
     stop_requested = True
     stop_mpv()
-    return "youtube"
+    download_stop_event.set()
+    search_stop_event.set()
+    return True, "youtube", None
 
 def youtube_pause():
     if is_playing:
         pause_resume()
-        return "youtube"
-    return "재생 중인 음악이 없습니다."
+        return True, "youtube", None
+    return True, "youtube", "재생 중인 음악이 없습니다."
 
 
 def youtube_resume():
     if is_paused:
         pause_resume()
-        return "youtube"
-    return "일시정지된 상태가 아닙니다."
+        return True, "youtube", None
+    return True, "youtube", "일시정지된 상태가 아닙니다."
 
 
 def youtube_next():
@@ -449,8 +454,8 @@ def youtube_next():
     if music_list:
         stop_mpv()
         current_track_index = (current_track_index + 1 ) % len(music_list)
-        return "youtube"
-    return "다음 곡이 없습니다."
+        return True, "youtube", None
+    return True, "youtube", "다음 곡이 없습니다."
 
 
 def youtube_prev():
@@ -460,15 +465,25 @@ def youtube_prev():
     if music_list:
         stop_mpv()
         current_track_index = (current_track_index - 1) % len(music_list)
-        return "youtube"
-    return "이전 곡이 없습니다."
+        return True, "youtube", None
+    return True, "youtube", "이전 곡이 없습니다."
 
 def youtube_action(text):
     # 공백 제거 및 소문자 변환 (전처리)
     text = text.strip().lower()
 
     # 🔍 검색 + 재생 (예: "xxx 노래 틀어줘", "xxx 음악 켜줘")
-    search_match = re.match(r"^(.+?)\s+(노래|음악)\s*(재생|재생해줘|틀어줘|틀어|켜줘|켜줄래|틀어줄래)$", text)
+    search_match = re.search(
+    r"""(?x)                                      # verbose 모드
+    ^\s*
+    (?P<query>.+?)                                # 검색어 (예: 레드벨벳)
+    \s*
+    (노래|음악)?                                   # "노래" 또는 "음악" (선택적)
+    \s*
+    (틀어\s*줘|재생\s*해\s*줘|틀어|켜\s*줘|켜줄래|틀어줄래|재생해|재생|플레이|들려\s*줘)?
+    \s*$""",
+    text
+    )
 
     # ▶️ 단순 재생 요청 (예: "재생", "노래 틀어줘", "음악 켜줘")
     play_match = re.fullmatch(r"(재생|노래\s*(재생|틀어줘|켜줘)|음악\s*(재생|틀어줘|켜줘))", text)
@@ -486,24 +501,7 @@ def youtube_action(text):
     prev_match = re.search(r"(이전\s*곡)", text)
 
     # 🎯 우선순위 처리
-    if search_match:
-        query = search_match.group(1).strip()
-        print(f"🔍 검색어 추출: {query}")
-        if youtube_search(query) == True:
-            print("search_match")
-            return youtube_play()
-        else:
-            return "검색 결과가 없습니다."
-
-    elif play_match:
-        if is_paused and is_playing:
-            print("play_match: resume")
-            return youtube_resume()  # 🔁 일시정지 상태면 resume
-        else:
-            print("play_match: new play")
-            return youtube_play()    # ▶️ 일반 재생
-
-    elif stop_match:
+    if stop_match:
         return youtube_stop()
 
     elif pause_match:
@@ -515,8 +513,25 @@ def youtube_action(text):
     elif prev_match:
         return youtube_prev()
 
+    elif play_match:
+        if is_paused and is_playing:
+            print("play_match: resume")
+            return youtube_resume()  # 🔁 일시정지 상태면 resume
+        else:
+            print("play_match: new play")
+            return youtube_play()    # ▶️ 일반 재생
+
+    elif search_match:
+        query = search_match.group(1).strip()
+        print(f"🔍 검색어 추출: {query}")
+        if youtube_search(query) == True:
+            print("search_match")
+            return youtube_play()
+        else:
+            return True, "youtube", "검색 결과가 없습니다."
+
     else:
-        return "아빠 도와줘요"
+        return False, "youtube", None
 
 
 # ✅ 테스트 실행

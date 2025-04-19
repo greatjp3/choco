@@ -2,13 +2,15 @@ from semantic_router.layer import RouteLayer
 import semantic_router.encoders as encoders
 from semantic_router import Route
 
-from actions import *
+from llm_actions import *
 from dotenv import load_dotenv
 
 from alarm_agent import alarm_action
 from volume_agent import volume_control_action
 from weather_agent import weather_action
 from youtube_agent import youtube_action
+from llm_actions import llm_action
+from llm_agent import fallback_to_llm_with_tools
 
 load_dotenv()
 api_key = os.getenv("OPENAI_API_KEY")
@@ -56,7 +58,17 @@ youtube_route = Route(
         "다음 곡",
         "이전 곡",
         "음악 꺼줘",
-        "음악 틀어줘"
+        "음악 틀어줘",
+        "레드벨벳 노래 틀어줘",
+        "아이유 노래 재생해 줘",
+        "노래 재생해줘",
+        "000의 노래 틀어 줘",
+        "000 노래 틀어줘",
+        "000 음악 틀어 줘",
+        "노래 하나 재생해줘",
+        "이 노래 틀어줘",
+        "좋은 노래 들려줘",
+        "재생해줘"
     ]
 )
 
@@ -71,14 +83,6 @@ weather_route = Route(
         "어제 보다 오늘 날씨?",
         "미세 먼지",
         "내일 추워?"
-    ]
-)
-
-aquarium_route = Route(
-    name="aquarium_action",
-    utterances = [
-        "어항 켜줘",
-        "어항 꺼줘"
     ]
 )
 
@@ -98,7 +102,7 @@ general_route = Route(
     ]
 )
 
-routes = [volume_route, alarm_route, youtube_route, weather_route, aquarium_route, general_route]
+routes = [volume_route, alarm_route, youtube_route, weather_route, general_route]
 
 # Initialize RouteLayer with the encoder and routes
 rl = RouteLayer(encoder=encoder, routes=routes)
@@ -140,7 +144,15 @@ def action_router(text: str, router=ActionRouter()):
     try:
         action_name = router.resolve(text)
         act = Action(action_name, text)
-        return act.perform()
+        action, result, response = act.perform()
+
+        if action == False:
+            logger.info(f"Action {action_name} returned False. Falling back to agent.")
+            return fallback_to_llm_with_tools(text, action_name, result, response)
+
+        return action, result, response
+
     except Exception as e:
         logger.error(f"Error in action_router: {e}")
         return "Action routing failed due to an error."
+

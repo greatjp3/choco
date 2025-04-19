@@ -1,4 +1,5 @@
 from logger import logger
+import re
 import os
 import sys
 import json
@@ -58,7 +59,7 @@ def save_settings(settings):
 def initialize_system():
     return None
 
-def wake_word(sensitivity=0.8):
+def wake_word(sensitivity=0.9):
     """키워드 감지를 위한 wake word 함수"""
     with open("settings.json", "r") as f:
         settings = json.load(f)
@@ -348,9 +349,24 @@ def change_speed(sound, speed=1.3):
     new_frame_rate = int(sound.frame_rate * speed)
     return sound._spawn(sound.raw_data, overrides={'frame_rate': new_frame_rate}).set_frame_rate(44100)
 
+def clean_text(text):
+    # 괄호 안 내용 제거 ((), [], {})
+    text = re.sub(r"\([^)]*\)", "", text)  # 괄호 ()
+    text = re.sub(r"\[[^]]*\]", "", text)  # 대괄호 []
+    text = re.sub(r"\{[^}]*\}", "", text)  # 중괄호 {}
+
+    # 일반 기호 제거 (쉼표, 마침표, 물음표 등은 남겨도 됨)
+    text = re.sub(r"[\"\'\\/@#$%^&*_+=<>|~`]", "", text)
+
+    # 다중 공백 정리
+    text = re.sub(r"\s{2,}", " ", text)
+
+    return text.strip()
+
 def text_to_speech(text, speed=1.3):
     """TTS 생성 후 지정된 속도로 재생"""
-    tts = gTTS(text, lang='ko')
+    cleaned = clean_text(text)
+    tts = gTTS(cleaned, lang='ko')
 
     # 임시 파일 생성 후 gTTS 결과 저장
     with tempfile.NamedTemporaryFile(delete=True, suffix=".mp3") as temp_audio:

@@ -164,14 +164,16 @@ def volume_control_action(text):
     )
 
     if up_match:
-        return v.volume_up()
+        v.volume_up()
+        return True, "volume", None
     elif down_match:
-        return v.volume_down()
+        v.volume_down()
+        return True, "volume", None
     elif max_match:
-        return v.volume_max()
+        return True, v.volume_max(), None
     elif med_match:
-        return v.volume_med()
+        return True, v.volume_med(), None
     elif min_match:
-        return v.volume_min()
+        return True, v.volume_min(), None
     else:
-        return "아빠 도와줘요"
+        return False, "volume", None
