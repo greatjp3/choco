@@ -1,0 +1,7 @@
+*.env
+*.pyc
+*.log
+*.opus
+*.jpg
+weather_data/
+music/
